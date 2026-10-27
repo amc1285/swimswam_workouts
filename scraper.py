@@ -104,11 +104,24 @@ def collect_local(folder):
 def collect_web():
     s = requests.Session()
     s.headers["User-Agent"] = USER_AGENT
-    rp = urllib.robotparser.RobotFileParser("https://swimswam.com/robots.txt")
+    # Fetch robots.txt ourselves so a block is reported as a block, not as
+    # "everything disallowed" (urllib's parser treats a 403 that way).
+    rp = urllib.robotparser.RobotFileParser()
     try:
-        rp.read()
-    except Exception as e:
-        print(f"Could not read robots.txt ({e}); continuing cautiously")
+        rr = s.get("https://swimswam.com/robots.txt", timeout=30)
+    except requests.RequestException as e:
+        rr = None
+        print(f"Could not fetch robots.txt ({e.__class__.__name__}); continuing cautiously")
+    if rr is not None and rr.status_code == 200:
+        rp.parse(rr.text.splitlines())
+    elif rr is not None and rr.status_code in (401, 403):
+        print(f"robots.txt request was blocked (HTTP {rr.status_code}). "
+              "The site is refusing automated requests from this machine; stopping.")
+        return [{"number": m, "url": BASE_URL.format(n=m), "title": None,
+                 **{k: None for k in LABELS},
+                 "status": f"blocked (HTTP {rr.status_code} on robots.txt)"}
+                for m in range(START, END + 1)]
+    else:
         rp = None
     rows, blocks = [], 0
     for n in range(START, END + 1):
@@ -135,6 +148,9 @@ def collect_web():
             print(f"#{n}: HTTP {r.status_code}")
             if blocks >= MAX_BLOCKS:
                 rows.append(row)
+                for m in range(n + 1, END + 1):
+                    rows.append({"number": m, "url": BASE_URL.format(n=m), "title": None,
+                                 **{k: None for k in LABELS}, "status": "not attempted"})
                 print("Site is blocking automated requests; stopping. "
                       "Use LOCAL_DIR with pages saved from your browser instead.")
                 return rows
@@ -232,6 +248,9 @@ def main():
         sys.exit("No rows collected.")
     write_excel(rows, OUTPUT)
     write_index(rows)
+    if any(str(r["status"]).startswith(("blocked", "disallowed")) for r in rows):
+        sys.exit("FAILED: SwimSwam blocked or disallowed the requests (see log). "
+                 "Use LOCAL_DIR with pages saved from your browser.")
 
 
 if __name__ == "__main__":
