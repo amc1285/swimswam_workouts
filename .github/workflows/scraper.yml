@@ -1,0 +1,39 @@
+name: SwimSwam Workout Index
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "First workout number"
+        default: "100"
+      end:
+        description: "Last workout number"
+        default: "1136"
+      course:
+        description: "Course filter for the main sheet (blank = all)"
+        default: "25 Yards"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python scraper.py
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          COURSE_FILTER: ${{ inputs.course }}
+          CONTACT: https://github.com/${{ github.repository }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swimswam-workouts
+          path: |
+            swimswam_workouts.xlsx
+            INDEX.md
+            data/workout_index.csv
